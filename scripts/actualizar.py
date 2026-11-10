@@ -57,7 +57,7 @@ for f in descubrir():
     try:
         offset = 0
         while True:
-            r = ckan("datastore_search", resource_id=f["id"], q="Horta Sud", limit=5000, offset=offset)
+            r = ckan("datastore_search", resource_id=f["id"], q="sud", limit=5000, offset=offset)
             for o in r["records"]:
                 if COMARCA.search(str(campo(o, "comarca") or "")):
                     filas.append({
