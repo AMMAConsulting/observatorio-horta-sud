@@ -1,0 +1,24 @@
+name: Actualizar datos turísticos
+on:
+  schedule:
+    - cron: "0 4 * * *"      # cada día a las 04:00 UTC
+  workflow_dispatch:          # botón manual en la pestaña Actions
+  push:
+    paths: ["scripts/**"]
+permissions:
+  contents: write
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python scripts/actualizar.py
+      - name: Guardar datos.json si ha cambiado
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add datos.json
+          git diff --cached --quiet || (git commit -m "Actualizar datos" && git push)

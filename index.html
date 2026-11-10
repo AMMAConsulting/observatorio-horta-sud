@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Observatorio turístico de L’Horta Sud</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#f4f7f5;--card:#fff;--ink:#14323a;--mute:#5b7077;--line:#d9e3e0;--naranja:#e8731a;--verde:#2f7d5b;--cielo:#3f9bc2;--ocre:#c9a227;--rojo:#b3402f}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1e22;--card:#16292e;--ink:#e6f0ee;--mute:#93aaa9;--line:#26414a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 "Schibsted Grotesk",system-ui,sans-serif}
+header{padding:2.5rem 1.25rem 1.25rem;max-width:1180px;margin:auto}
+h1{font-size:clamp(1.9rem,4.5vw,3.2rem);line-height:1.05;margin:0 0 .5rem;font-weight:800;letter-spacing:-.02em}
+header p{margin:0;color:var(--mute);max-width:62ch}
+main{max-width:1180px;margin:auto;padding:0 1.25rem 3rem}
+.bar{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;margin:1.25rem 0}
+select,button{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.5rem .8rem}
+button{cursor:pointer;font-weight:600}
+button:hover{border-color:var(--naranja)}
+:focus-visible{outline:3px solid var(--cielo);outline-offset:2px}
+#estado{color:var(--mute);font-size:.9rem;margin-left:auto}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem}
+.kpi{background:var(--card);border:1px solid var(--line);border-left:6px solid var(--naranja);border-radius:6px;padding:1rem 1.2rem}
+.kpi:nth-child(2){border-left-color:var(--verde)}.kpi:nth-child(3){border-left-color:var(--cielo)}.kpi:nth-child(4){border-left-color:var(--ocre)}
+.kpi b{display:block;font-size:2.4rem;line-height:1.1;font-weight:800}
+.kpi span{color:var(--mute);font-size:.92rem}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:1rem;margin-top:1rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:1.1rem 1.2rem}
+.card h2{font-size:1.05rem;margin:0 0 .75rem;font-weight:600}
+.c7{grid-column:span 7}.c5{grid-column:span 5}.c12{grid-column:span 12}
+.box{position:relative;height:340px}
+@media(max-width:820px){.c7,.c5{grid-column:span 12}}
+#aviso{display:none;background:#fbe9e5;color:#6d2417;border:1px solid var(--rojo);border-radius:6px;padding:1rem;margin:1rem 0}
+footer{color:var(--mute);font-size:.85rem;margin-top:1.5rem}
+footer a{color:inherit}
+</style>
+</head>
+<body>
+<header>
+  <h1>Observatorio turístico de L’Horta Sud</h1>
+  <p>Oferta de alojamiento turístico en los municipios de la comarca. Los datos proceden de los datos abiertos de la Generalitat Valenciana y se actualizan automáticamente cada día.</p>
+</header>
+<main>
+  <div class="bar">
+    <label for="muni">Municipio</label>
+    <select id="muni"><option value="">Toda la comarca</option></select>
+    <label for="metrica">Mostrar</label>
+    <select id="metrica"><option value="plazas">Plazas</option><option value="n">Establecimientos</option></select>
+    <button id="refrescar" type="button">Recargar</button>
+    <span id="estado" role="status">Cargando datos…</span>
+  </div>
+  <div id="aviso" role="alert"></div>
+  <section class="kpis" aria-label="Indicadores">
+    <div class="kpi"><b id="k1">–</b><span>Alojamientos activos</span></div>
+    <div class="kpi"><b id="k2">–</b><span>Plazas disponibles</span></div>
+    <div class="kpi"><b id="k3">–</b><span>Altas en los últimos 12 meses</span></div>
+    <div class="kpi"><b id="k4">–</b><span>Municipios con oferta</span></div>
+  </section>
+  <div class="grid">
+    <div class="card c7"><h2 id="t1">Oferta por municipio</h2><div class="box"><canvas id="g1"></canvas></div></div>
+    <div class="card c5"><h2>Alojamientos por tipo</h2><div class="box"><canvas id="g2"></canvas></div></div>
+    <div class="card c12"><h2>Evolución de la oferta (fin de cada año)</h2><div class="box"><canvas id="g3"></canvas></div></div>
+  </div>
+  <footer>
+    Fuente: <a href="https://dadesobertes.gva.es" target="_blank" rel="noopener">Dades Obertes GVA</a> (registro de turismo, último período publicado), descargado a diario mediante la API CKAN. Se cuentan como activos los registros sin fecha de baja. Los datos del registro pueden no coincidir con la oferta realmente en funcionamiento.
+  </footer>
+</main>
+<script>
+const REFRESCO_MS = 6 * 3600 * 1000;
+const COLORES = ['#e8731a','#2f7d5b','#3f9bc2','#c9a227','#b3402f','#7a5ea8','#6b8e23'];
+let filas = [], charts = {}, ultima = 0;
+const $ = id => document.getElementById(id);
+const nf = new Intl.NumberFormat('es-ES');
+
+async function cargar() {
+  $('estado').textContent = 'Cargando…';
+  $('aviso').style.display = 'none';
+  try {
+    const r = await fetch('datos.json?v=' + Date.now());
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    filas = j.filas.map(f => ({ tipo: f.tipo, muni: f.muni, plazas: f.plazas,
+      alta: f.alta ? new Date(f.alta) : null, baja: f.baja ? new Date(f.baja) : null }));
+    if (!filas.length) throw new Error('el archivo no contiene registros');
+    ultima = Date.now();
+    rellenarMunicipios();
+    pintar();
+    $('estado').textContent = 'Datos de la GVA actualizados el ' + new Date(j.actualizado).toLocaleDateString('es-ES', { dateStyle: 'long' });
+  } catch (e) {
+    $('estado').textContent = 'No se han podido cargar los datos';
+    const a = $('aviso');
+    a.style.display = 'block';
+    a.textContent = 'No se ha podido leer datos.json (' + e.message + '). Si acabas de subir el repositorio, ejecuta la tarea «Actualizar datos turísticos» en la pestaña Actions y espera a que termine.';
+  }
+}
+
+function rellenarMunicipios() {
+  const sel = $('muni'), actual = sel.value;
+  const ms = [...new Set(filas.map(f => f.muni))].sort((a, b) => a.localeCompare(b, 'es'));
+  sel.innerHTML = '<option value="">Toda la comarca</option>' + ms.map(m => `<option>${m}</option>`).join('');
+  sel.value = ms.includes(actual) ? actual : '';
+}
+
+function grafico(id, cfg) {
+  if (charts[id]) { charts[id].data = cfg.data; charts[id].options = cfg.options; charts[id].update(); return; }
+  charts[id] = new Chart($(id), cfg);
+}
+
+function pintar() {
+  const muni = $('muni').value, metrica = $('metrica').value;
+  const activas = filas.filter(f => !f.baja);
+  const sel = muni ? activas.filter(f => f.muni === muni) : activas;
+  const hace12 = new Date(); hace12.setFullYear(hace12.getFullYear() - 1);
+
+  $('k1').textContent = nf.format(sel.length);
+  $('k2').textContent = nf.format(sel.reduce((s, f) => s + f.plazas, 0));
+  $('k3').textContent = nf.format(sel.filter(f => f.alta && f.alta >= hace12).length);
+  $('k4').textContent = nf.format(new Set(sel.map(f => f.muni)).size);
+
+  const unidad = metrica === 'plazas' ? 'plazas' : 'alojamientos';
+  $('t1').textContent = (metrica === 'plazas' ? 'Plazas' : 'Alojamientos') + ' por municipio';
+  const porMuni = {};
+  activas.forEach(f => porMuni[f.muni] = (porMuni[f.muni] || 0) + (metrica === 'plazas' ? f.plazas : 1));
+  const orden = Object.entries(porMuni).sort((a, b) => b[1] - a[1]);
+  grafico('g1', {
+    type: 'bar',
+    data: { labels: orden.map(o => o[0]), datasets: [{ label: unidad, data: orden.map(o => o[1]),
+      backgroundColor: orden.map(o => !muni || o[0] === muni ? '#e8731a' : '#e8731a55'), borderRadius: 3 }] },
+    options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } } }
+  });
+
+  const porTipo = {};
+  sel.forEach(f => porTipo[f.tipo] = (porTipo[f.tipo] || 0) + 1);
+  const tipos = Object.entries(porTipo).sort((a, b) => b[1] - a[1]);
+  grafico('g2', {
+    type: 'doughnut',
+    data: { labels: tipos.map(t => t[0]), datasets: [{ data: tipos.map(t => t[1]), backgroundColor: COLORES, borderWidth: 0 }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+  });
+
+  const todos = muni ? filas.filter(f => f.muni === muni) : filas;
+  const ini = Math.min(...todos.filter(f => f.alta).map(f => f.alta.getFullYear()), new Date().getFullYear());
+  const fin = new Date().getFullYear();
+  const años = []; for (let y = Math.max(ini, fin - 15); y <= fin; y++) años.push(y);
+  const vivo = (f, y) => f.alta && f.alta.getFullYear() <= y && (!f.baja || f.baja.getFullYear() > y);
+  grafico('g3', {
+    type: 'line',
+    data: { labels: años, datasets: [
+      { label: 'Alojamientos', data: años.map(y => todos.filter(f => vivo(f, y)).length), borderColor: '#2f7d5b', backgroundColor: '#2f7d5b', tension: .25, yAxisID: 'y' },
+      { label: 'Plazas', data: años.map(y => todos.filter(f => vivo(f, y)).reduce((s, f) => s + f.plazas, 0)), borderColor: '#e8731a', backgroundColor: '#e8731a', tension: .25, yAxisID: 'y1' }
+    ] },
+    options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      scales: { y: { beginAtZero: true, title: { display: true, text: 'Alojamientos' } },
+                y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Plazas' } } } }
+  });
+}
+
+$('muni').addEventListener('change', pintar);
+$('metrica').addEventListener('change', pintar);
+$('refrescar').addEventListener('click', cargar);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - ultima > 3600e3) cargar(); });
+setInterval(cargar, REFRESCO_MS);
+cargar();
+</script>
+</body>
+</html>
